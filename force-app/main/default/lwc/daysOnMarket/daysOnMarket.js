@@ -15,6 +15,15 @@ const MAX_DAYS_CHART = 90;
 
 const FIELDS = [DATE_LISTED_FIELD, DAYS_ON_MARKET_FIELD];
 
+export function computeBarStyle(days) {
+    const n = Number(days);
+    if (days === null || days === undefined || !Number.isFinite(n)) {
+        return 'width:0%';
+    }
+    const pct = Math.min(100, Math.max(0, (n / MAX_DAYS_CHART) * 100));
+    return `width:${pct}%`;
+}
+
 export default class DaysOnMarket extends LightningElement {
     error;
     daysOnMarket;
@@ -69,8 +78,7 @@ export default class DaysOnMarket extends LightningElement {
     }
 
     get barStyle() {
-        const value = (this.daysOnMarket / MAX_DAYS_CHART) * 100;
-        return 'width:' + value + '%';
+        return computeBarStyle(this.daysOnMarket);
     }
 
     connectedCallback() {
