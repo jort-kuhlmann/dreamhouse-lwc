@@ -1,5 +1,5 @@
 import { createElement } from '@lwc/engine-dom';
-import DaysOnMarket from 'c/daysOnMarket';
+import DaysOnMarket, { computeBarStyle } from 'c/daysOnMarket';
 import { getRecord, getFieldValue } from 'lightning/uiRecordApi';
 import {
     subscribe,
@@ -14,6 +14,12 @@ import DAYS_ON_MARKET_FIELD from '@salesforce/schema/Property__c.Days_On_Market_
 const MAX_DAYS_CHART = 90;
 
 const mockGetRecord = require('./data/getRecord.json');
+
+function recordWithDays(days) {
+    const record = JSON.parse(JSON.stringify(mockGetRecord));
+    record.fields.Days_On_Market__c.value = days;
+    return record;
+}
 
 describe('c-days-on-market', () => {
     afterEach(() => {
@@ -93,7 +99,7 @@ describe('c-days-on-market', () => {
     });
 
     describe('getRecord @wire data', () => {
-        function validateHTML(element, type) {
+        function validateHTML(element, type, record) {
             const badgeEl = element.shadowRoot.querySelector(
                 `div.badge.${type}`
             );
@@ -101,24 +107,25 @@ describe('c-days-on-market', () => {
 
             const daysDivEl = element.shadowRoot.querySelector('div.days');
             expect(daysDivEl.textContent).toBe(
-                getFieldValue(mockGetRecord, DAYS_ON_MARKET_FIELD).toString()
+                getFieldValue(record, DAYS_ON_MARKET_FIELD).toString()
             );
 
             const chartBarEl = element.shadowRoot.querySelector(
                 `div.bar.${type}`
             );
             expect(chartBarEl).not.toBeNull();
-            const width =
-                (getFieldValue(mockGetRecord, DAYS_ON_MARKET_FIELD) /
-                    MAX_DAYS_CHART) *
-                100;
+            const width = Math.min(
+                100,
+                (getFieldValue(record, DAYS_ON_MARKET_FIELD) / MAX_DAYS_CHART) *
+                    100
+            );
             expect(chartBarEl.style.width).toBe(`${width}%`);
 
             const formattedDateTimeEl = element.shadowRoot.querySelector(
                 'lightning-formatted-date-time'
             );
             expect(formattedDateTimeEl.value).toBe(
-                getFieldValue(mockGetRecord, DATE_LISTED_FIELD).toString()
+                getFieldValue(record, DATE_LISTED_FIELD).toString()
             );
         }
 
@@ -133,13 +140,14 @@ describe('c-days-on-market', () => {
                 document.body.appendChild(element);
 
                 // Emit data from @wire
-                getRecord.emit(mockGetRecord);
+                const record = recordWithDays(18);
+                getRecord.emit(record);
 
                 // Wait for any asynchronous DOM updates
                 await flushPromises();
 
                 // Select elements for validation
-                validateHTML(element, 'normal');
+                validateHTML(element, 'normal', record);
             });
 
             // eslint-disable-next-line jest/expect-expect
@@ -152,14 +160,14 @@ describe('c-days-on-market', () => {
                 document.body.appendChild(element);
 
                 // Emit data from @wire
-                mockGetRecord.fields.Days_On_Market__c.value = 48;
-                getRecord.emit(mockGetRecord);
+                const record = recordWithDays(48);
+                getRecord.emit(record);
 
                 // Wait for any asynchronous DOM updates
                 await flushPromises();
 
                 // Select elements for validation
-                validateHTML(element, 'warning');
+                validateHTML(element, 'warning', record);
             });
 
             // eslint-disable-next-line jest/expect-expect
@@ -172,17 +180,69 @@ describe('c-days-on-market', () => {
                 document.body.appendChild(element);
 
                 // Emit data from @wire
-                mockGetRecord.fields.Days_On_Market__c.value = 68;
-                getRecord.emit(mockGetRecord);
+                const record = recordWithDays(68);
+                getRecord.emit(record);
 
                 // Wait for any asynchronous DOM updates
                 await flushPromises();
 
                 // Select elements for validation
-                validateHTML(element, 'alert');
+                validateHTML(element, 'alert', record);
             });
         });
     });
+    describe('barStyle clamping', () => {
+        it.each([90, 120, 365])('returns width:100%% for %p days', (days) => {
+            expect(computeBarStyle(days)).toBe('width:100%');
+        });
+
+        it.each([undefined, null])('returns width:0%% for %p', (days) => {
+            expect(computeBarStyle(days)).toBe('width:0%');
+        });
+
+        it('clamps negative values to width:0%', () => {
+            expect(computeBarStyle(-5)).toBe('width:0%');
+        });
+
+        it('returns proportional width within range', () => {
+            expect(computeBarStyle(45)).toBe('width:50%');
+        });
+
+        it.each([90, 120, 365])(
+            'renders a 100%% wide alert bar for %p days',
+            async (days) => {
+                const element = createElement('c-days-on-market', {
+                    is: DaysOnMarket
+                });
+                element.recordId = '001';
+                document.body.appendChild(element);
+
+                getRecord.emit(recordWithDays(days));
+                await flushPromises();
+
+                const barEl = element.shadowRoot.querySelector('div.bar.alert');
+                expect(barEl).not.toBeNull();
+                expect(barEl.style.width).toBe('100%');
+                expect(
+                    element.shadowRoot.querySelector('div.badge.alert')
+                ).not.toBeNull();
+            }
+        );
+
+        it('does not render the bar when days on market is null', async () => {
+            const element = createElement('c-days-on-market', {
+                is: DaysOnMarket
+            });
+            element.recordId = '001';
+            document.body.appendChild(element);
+
+            getRecord.emit(recordWithDays(null));
+            await flushPromises();
+
+            expect(element.shadowRoot.querySelector('div.bar')).toBeNull();
+        });
+    });
+
     describe('getRecord @wire error', () => {
         it('renders an error panel when there is an error', async () => {
             const APEX_ERROR = {
